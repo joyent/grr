@@ -1,11 +1,12 @@
-# node-joyent-grr
+# grr
 
 A `grr` CLI tool to help with using Joyent's code review (CR) tool, Gerrit, at:
-    https://cr.joyent.us/
+<https://cr.joyent.us/>
 
 ## Install
 
-    npm install -g joyent-grr
+**Not published yet.** For now you'll have to clone this repo and put the "bin"
+dir on your PATH.
 
 Verify that it is installed and on your PATH:
 

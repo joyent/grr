@@ -1,5 +1,5 @@
-# node-joyent-grr changelog
+# grr changelog
 
 ## 1.0.0
 
-Nothing yet.
+First working version.
