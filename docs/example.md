@@ -120,13 +120,13 @@ When you are done, use `grr -D` to clean up (remove the branch) and it pops
 you back to `master`:
 
 ```
-[15:09:52 trentm@danger0:~/tm/play (grr/TOOLS-1516)]
+[trentm@danger0:~/tm/play (grr/TOOLS-1516)]
 $ grr -D
 Removing grr config for branch "grr/TOOLS-1516"
 Deleting local grr branch "grr/TOOLS-1516"
     $ git branch -D grr/TOOLS-1516
     Deleted branch grr/TOOLS-1516 (was 0cd9100).
 
-[15:10:03 trentm@danger0:~/tm/play (master)]
+[trentm@danger0:~/tm/play (master)]
 $
 ```
