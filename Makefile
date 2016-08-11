@@ -25,7 +25,7 @@ all:
 	npm install
 
 .PHONY: test
-test::
+test:
 	@echo 'No tests yet.'
 
 .PHONY: clean

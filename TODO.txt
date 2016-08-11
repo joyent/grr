@@ -1,0 +1,162 @@
+    grr [-n,--dry-run] [--commit] ISSUE [parenthetical]
+        - If have local git config `grr.$branch.issue` and it does not match
+          ISSUE, then bail.
+            DONE
+        - Ensure grr is setup: can access gerrit (via ssh, should be same
+          access as required to push?), have config for GH if a GH ticket,
+          for JIRA if a JIRA ticket.
+            DONE for jira
+        - Find the Jira ticket or the GH repo and ticket. Expect it to be open.
+          Get the commit message title to use.
+            DONE for jira
+        - Create a grr/$issue branch if currently on master and switch to it.
+            - If a parenthetical, might reasonably already have a grr branch
+              for this ticket. If so, then incr to `gcc/${issue}a`, `...b`, etc.
+            DONE
+        - Set local git config:
+                grr.$branch.issue=$issue
+                grr.$branch.title=$title
+                grr.$branch.parenthetical=$parenthetical
+            DONE
+        - If commiting (--commit), then do the commit (using "$issue $title ($parenthetical)").
+        - If no commits to push (i.e. no `git log HEAD..`), then say so
+          and we're done.
+            DONE
+        - Pushing:
+            - create grr/auto/$issue branch
+            - determine correct commit message:
+                (a) possibly update title from the issue (if `-u` used)
+                (b) from local git config values
+                (c) gathered "Reviewed by" from gerrit
+            - squash merge and/or ammend commit message, if necessary
+            - push to gerrit
+            - parse out the CR num and set local git config:
+                grr.$branch.cr=$cr
+            - delete grr/auto/$issue branch
+            DONE
+
+    grr [-n,--dry-run] [-u] [--commit]
+        - Expect to be on a non-master branch, else error out.
+            DONE
+        - Expect to have `grr.$branch.issue` in local git config, else bail.
+            DONE
+        - Ensure grr is setup: have config for gerrit ssh access, for GH if a
+          GH ticket, for JIRA if a JIRA ticket.
+            DONE for jira
+        - Copy process above starting from "If commiting,"
+            DONE
+
+    grr -D,--delete
+        XXX flesh this out
+        Delete branch locally (and remote?).
+        Different behaviour if the branch is grr/* ?
+        Switch back to HEAD or master or whatever.
+            DONE
+
+
+# scenarios
+
+## scenario: simple single change for review
+
+Uncommited changes:
+
+    [~/src/myproject (master)]$ git diff
+    ...
+
+Get a review of them easily:
+
+    [~/src/myproject (master)]$ grr --commit TOOLS-123
+    Issue: TOOLS-123 add feature X
+    Creating branch for CR: grr/TOOLS-123
+    Commiting local changes:
+        ...indented 'git commit' output
+    Creating CR:
+        ...indented 'git push' output (this may do the full grr/auto/$issue dance)
+    CR: 42 <https://cr.joyent.us/42>
+    [~/src/myproject (grr/TOOLS-123)]$
+
+Then get reviews and click in the web UI to integrate it. When done, can
+cleanup:
+
+    [~/src/myproject (grr/TOOLS-123)]$ grr --delete
+    ... confirm we are on a 'grr/*' branch.
+    ... *perhaps* confirm the CR is merged?
+    Deleting branch for CR 42 <https://cr.joyent.us/42>.
+    Deleting remote 'origin' branch:        # only if it is there
+        ...indented 'git push origin :$branch' output
+    Deleting branch 'grr/TOOLS-123':
+        ...indented 'git branch -d' output. Do we need 'git branch -D'?
+
+
+## scenario: prep for working on an issue, no changes yet to CR
+
+    [~/src/myproject (master)]$ grr TOOLS-123
+    Issue: TOOLS-123 add feature X
+    Creating branch for CR: grr/TOOLS-123
+    Not creating CR: no commits over master
+
+## scenario: creating a CR while on a manual feature branch
+
+    [~/src/myproject (TOOLS-123)]$ grr TOOLS-123
+    Issue: TOOLS-123 add feature X
+    Using current feature branch for CR: TOOLS-123
+    Creating CR:
+        ...indented grr/auto/$issue dance
+    CR: 42 <https://cr.joyent.us/42>
+    [~/src/myproject (TOOLS-123)]$
+
+
+## scenario: updates to a created CR
+
+You have a 'grr/TOOLS-123' branch (created as in the first scenario) and
+have created an initial CR 42. Now you have made another commit on your local
+feature branch and want to update the CR.
+
+    [~/src/myproject (grr/TOOLS-123)]$ git commit -am "another change"
+    [~/src/myproject (grr/TOOLS-123)]$ grr
+    Updating CR 42 <https://cr.joyent.us/42> with local commits.
+    Warning: You have uncommited changes. You can `grr --commit` or commit them.
+    Updating CR 42:
+        ...indented grr/auto/$issue log
+    CR 42 patch set 2 added: <https://cr.joyent.us/42/2>
+
+^^^ That will create a temporary branch in which to squash your commits and
+push *that* to Gerrit. Then it deletes that temp branch.
+
+
+## scenario: `grr TOOLS-123` when not on that branch locally
+
+What happens if the user does `grr TOOLS-123` when not on the already created
+branch for that. There are a few cases.
+
+1. `grr/TOOLS-123` branch exists locally, currently on master.
+
+        [~/src/myproject (master)]$ grr TOOLS-123
+        grr: error: 'grr/TOOLS-123' branch already exists. Switch to it or use '--force'.
+
+    TODO: add '-f,--force' for creating a new branch.
+
+2. `grr/TOOLS-123` branch exists locally, currently on some other branch.
+
+        [~/src/myproject (foo)]$ grr TOOLS-123
+        grr: error: TOOLS-123 does not match the CR issue (TOOLS-124) for the current branch (grr/TOOLS-123)
+
+3. `TOOLS-123` branch exists locally and was manually used for CR'ing that
+   issue earlier. Don't want to have `grr` start searching all branch configs
+   right now. So this is a foot gun. The result is that it'll create a new
+   'grr/TOOLS-123' branch.
+
+        [~/src/myproject (master)]$ grr TOOLS-123
+        Issue: TOOLS-123 add feature X
+        Creating branch for CR: grr/TOOLS-123
+        Not creating CR: no commits over master
+        [~/src/myproject (grr/TOOLS-123)]$
+
+    TODO: add '-f,--force' for creating a new branch.
+
+
+# dev
+
+g play
+grr -v TOOLS-1516 2>&1 | bunyan
+grr TOOLS-1516

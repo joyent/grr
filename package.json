@@ -9,6 +9,9 @@
     "bunyan": "1.x",
     "dashdash": "1.x",
     "forkexec": "1.x",
+    "request": "2.74.x",
+    "strsplit": "1.x",
+    "toml": "2.3.x",
     "vasync": "1.x",
     "verror": "1.x",
     "which": "1.2.x"

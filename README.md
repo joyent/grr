@@ -17,9 +17,11 @@ Verify that it is installed and on your PATH:
 
 XXX
 
+
 ## Usage
 
-XXX
+See [the example](docs/example.md) for now.
+
 
 ## Development Hooks
 
@@ -36,3 +38,10 @@ clone via:
 ## License
 
 MPL 2.0
+
+
+## RFEs
+
+- support GH issues
+- support pulling ticket title from smartos.org/bugview for public issues
+  (then don't have to be internal Joyent Eng to use `grr`)
