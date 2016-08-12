@@ -1,3 +1,26 @@
+# TODO
+
+- --dry-run support
+- --commit
+- trace logging to file and less verbose output:
+    - CONFIG_FILE and CACHE_FILE to move under ~/.grr: ~/.grr/config
+      ~/.grr/cache.json
+    - pass through arg.console that supports `console.{log,error}` and writes
+      to the log file (at info level) as well
+    - trace logging to ~/.grr/logs/$timestamp.log
+    - put this all in logging.js
+    - grr regular process to clean out old old log files
+    - `grr --last-log` to cat last log file
+- `grr -D` to check that all commits have been pushed to Gerrit
+- XXX START HERE
+- "idea: when updating, submit the commit message of the new commit as a +0
+  comment on the new patchset so you can use it as a way to describe what you
+  changed for reviewers" -- Alex
+
+
+
+# old plan (obsolete, mostly)
+
     grr [-n,--dry-run] [--commit] ISSUE [parenthetical]
         - If have local git config `grr.$branch.issue` and it does not match
           ISSUE, then bail.
