@@ -1,5 +1,9 @@
 # TODO
 
+- doc the opinions and expected workflow in README.md
+- eslint
+- GH issue support
+- `grr -D` may delete other non-grr branch details, which isn't right
 - --dry-run support
 - --commit
 - trace logging to file and less verbose output:
@@ -11,70 +15,10 @@
     - put this all in logging.js
     - grr regular process to clean out old old log files
     - `grr --last-log` to cat last log file
-- `grr -D` to check that all commits have been pushed to Gerrit
-- XXX START HERE
-- "idea: when updating, submit the commit message of the new commit as a +0
-  comment on the new patchset so you can use it as a way to describe what you
-  changed for reviewers" -- Alex
+- `grr -D` to check that all commits have been pushed to Gerrit, else require
+  a -f
+- see RFEs section in README.md
 
-
-
-# old plan (obsolete, mostly)
-
-    grr [-n,--dry-run] [--commit] ISSUE [parenthetical]
-        - If have local git config `grr.$branch.issue` and it does not match
-          ISSUE, then bail.
-            DONE
-        - Ensure grr is setup: can access gerrit (via ssh, should be same
-          access as required to push?), have config for GH if a GH ticket,
-          for JIRA if a JIRA ticket.
-            DONE for jira
-        - Find the Jira ticket or the GH repo and ticket. Expect it to be open.
-          Get the commit message title to use.
-            DONE for jira
-        - Create a grr/$issue branch if currently on master and switch to it.
-            - If a parenthetical, might reasonably already have a grr branch
-              for this ticket. If so, then incr to `gcc/${issue}a`, `...b`, etc.
-            DONE
-        - Set local git config:
-                grr.$branch.issue=$issue
-                grr.$branch.title=$title
-                grr.$branch.parenthetical=$parenthetical
-            DONE
-        - If commiting (--commit), then do the commit (using "$issue $title ($parenthetical)").
-        - If no commits to push (i.e. no `git log HEAD..`), then say so
-          and we're done.
-            DONE
-        - Pushing:
-            - create grr/auto/$issue branch
-            - determine correct commit message:
-                (a) possibly update title from the issue (if `-u` used)
-                (b) from local git config values
-                (c) gathered "Reviewed by" from gerrit
-            - squash merge and/or ammend commit message, if necessary
-            - push to gerrit
-            - parse out the CR num and set local git config:
-                grr.$branch.cr=$cr
-            - delete grr/auto/$issue branch
-            DONE
-
-    grr [-n,--dry-run] [-u] [--commit]
-        - Expect to be on a non-master branch, else error out.
-            DONE
-        - Expect to have `grr.$branch.issue` in local git config, else bail.
-            DONE
-        - Ensure grr is setup: have config for gerrit ssh access, for GH if a
-          GH ticket, for JIRA if a JIRA ticket.
-            DONE for jira
-        - Copy process above starting from "If commiting,"
-            DONE
-
-    grr -D,--delete
-        XXX flesh this out
-        Delete branch locally (and remote?).
-        Different behaviour if the branch is grr/* ?
-        Switch back to HEAD or master or whatever.
-            DONE
 
 
 # scenarios
