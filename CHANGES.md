@@ -2,10 +2,12 @@
 
 ## 1.1.1 (not yet released)
 
-(nothing yet)
-
+- Fix `AssertionError: opts.dryRun (bool) is required` error for every
+  invocation.
 
 ## 1.1.0
+
+**Bad release. Use 1.1.1.**
 
 - Support GitHub issues.
 
