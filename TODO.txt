@@ -7,7 +7,6 @@
         grr -p "my parenthetical that I remembered to add later"
 - doc the opinions and expected workflow in README.md
 - eslint
-- GH issue support
 - `grr -D` may delete other non-grr branch details, which isn't right
 - --dry-run support
 - --commit
@@ -22,7 +21,15 @@
     - `grr --last-log` to cat last log file
 - `grr -D` to check that all commits have been pushed to Gerrit, else require
   a -f
-- see RFEs section in README.md
+- support an option (in config and per branch) to push to a remote GH branch
+  as well for every `grr`. Then have some of the GH branch utilities
+  (nicer full diff, seeing individual commits as they were made, ability to
+  use jenkins.joyent.us `TRY_BRANCH`)
+- support pulling ticket title from smartos.org/bugview for public issues
+  (then don't have to be internal Joyent Eng to use `grr`)
+- perhaps add draft support: `git push origin HEAD:refs/drafts/master`
+  This makes a "Draft" CR that only those added as reviewers can see. I
+  don't know if there are other implications.
 
 
 
@@ -125,10 +132,3 @@ branch for that. There are a few cases.
         [~/src/myproject (grr/TOOLS-123)]$
 
     TODO: add '-f,--force' for creating a new branch.
-
-
-# dev
-
-g play
-grr -v TOOLS-1516 2>&1 | bunyan
-grr TOOLS-1516
