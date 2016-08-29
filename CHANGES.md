@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.1.2 (not yet released)
+
+(nothing yet)
+
+
 ## 1.1.1
 
 - Fix `AssertionError: opts.dryRun (bool) is required` error for every
