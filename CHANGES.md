@@ -2,7 +2,7 @@
 
 ## 1.2.1 (not yet released)
 
-(nothing yet)
+- Fix `grr -D` assert on `opts.dryRun`.
 
 
 ## 1.2.0
