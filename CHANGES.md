@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.2.2 (not yet released)
+
+(nothing yet)
+
+
 ## 1.2.1
 
 - Fix `grr -D` assert on `opts.dryRun`.
