@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.2.1 (not yet released)
+
+(nothing yet)
+
+
 ## 1.2.0
 
 - `grr` will update the commit message to include "Reviewed by" and
