@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.1.1 (not yet released)
+
+(nothing yet)
+
+
 ## 1.1.0
 
 - Support GitHub issues.
