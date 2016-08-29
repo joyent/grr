@@ -1,6 +1,6 @@
 # grr changelog
 
-## 1.2.0 (not yet released)
+## 1.2.0
 
 - `grr` will update the commit message to include "Reviewed by" and
   "Approved by" lines according to approvals on the latest patchset.
