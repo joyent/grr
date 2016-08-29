@@ -12,9 +12,11 @@ Grr is opinionated. The expected workflow is this:
    `grr/auto/<issue>` branch), push the commit (with the appropriate commit
    message) to cr.joyent.us, and remember the CR number.
 4. Get approvals for your CR, and/or cycle back to step #2.
-5. When you get approval, integrate your change (in the web UI, grr doesn't
-   yet do this), then use `grr -D` to clean up (delete the `grr/<issue>`
-   branch and switch back to master).
+5. When you get approval, run `grr` one last time to update the commit message
+   with "Reviewed by" and "Approved by" lines.
+6. Integrate your change (in the web UI, grr doesn't yet do this), then use
+   `grr -D` to clean up (delete the `grr/<issue>` branch and switch back to
+   master).
 
 See [this example](docs/example.md) for a walk through.
 
