@@ -1,5 +1,10 @@
 # TODO
 
+- change <parenthetical> to being an *option*, makes it clearer how to update
+  it later:
+        grr ISSUE
+        ...
+        grr -p "my parenthetical that I remembered to add later"
 - doc the opinions and expected workflow in README.md
 - eslint
 - GH issue support
@@ -8,7 +13,7 @@
 - --commit
 - trace logging to file and less verbose output:
     - CONFIG_FILE and CACHE_FILE to move under ~/.grr: ~/.grr/config
-      ~/.grr/cache.json
+      ~/.grr/cache.json. Maybe don't need to.
     - pass through arg.console that supports `console.{log,error}` and writes
       to the log file (at info level) as well
     - trace logging to ~/.grr/logs/$timestamp.log
