@@ -1,3 +1,20 @@
+# TODO higher prio
+
+Need to figure out these occassional ssh hangs and fix them. Possibly this'll
+require some involved unwinding/retrying/rollbacking code through out, but for
+starters let's see if there is a pattern via logging.
+
+- trace logging to file and less verbose output:
+    - lib/logging.js
+    - log trace level to a ring buffer, dump that to ~/.grr/logs/grr-$timestamp.log
+      on failure
+    - on failure, do the bunyan CLI thing to spit out notes for logging a bug
+      with details to attach the file.
+    * * *
+    - consider `log.console.{log,error}` and a stream that will emit those
+      to stdout/stderr while also to the log file
+    - `grr --last-log` to cat last log file
+
 # TODO
 
 - `grr --integrate,-I` that checks for approvals, does the integration,
@@ -12,15 +29,6 @@
 - `grr -D` may delete other non-grr branch details, which isn't right
 - --dry-run support
 - --commit
-- trace logging to file and less verbose output:
-    - CONFIG_FILE and CACHE_FILE to move under ~/.grr: ~/.grr/config
-      ~/.grr/cache.json. Maybe don't need to.
-    - pass through arg.console that supports `console.{log,error}` and writes
-      to the log file (at info level) as well
-    - trace logging to ~/.grr/logs/$timestamp.log
-    - put this all in logging.js
-    - grr regular process to clean out old old log files
-    - `grr --last-log` to cat last log file
 - `grr -D` to check that all commits have been pushed to Gerrit, else require
   a -f
 - support an option (in config and per branch) to push to a remote GH branch
@@ -32,77 +40,10 @@
 - perhaps add draft support: `git push origin HEAD:refs/drafts/master`
   This makes a "Draft" CR that only those added as reviewers can see. I
   don't know if there are other implications.
+- handle the scenario below?
 
 
 
-# scenarios
-
-## scenario: simple single change for review
-
-Uncommited changes:
-
-    [~/src/myproject (master)]$ git diff
-    ...
-
-Get a review of them easily:
-
-    [~/src/myproject (master)]$ grr --commit TOOLS-123
-    Issue: TOOLS-123 add feature X
-    Creating branch for CR: grr/TOOLS-123
-    Commiting local changes:
-        ...indented 'git commit' output
-    Creating CR:
-        ...indented 'git push' output (this may do the full grr/auto/$issue dance)
-    CR: 42 <https://cr.joyent.us/42>
-    [~/src/myproject (grr/TOOLS-123)]$
-
-Then get reviews and click in the web UI to integrate it. When done, can
-cleanup:
-
-    [~/src/myproject (grr/TOOLS-123)]$ grr --delete
-    ... confirm we are on a 'grr/*' branch.
-    ... *perhaps* confirm the CR is merged?
-    Deleting branch for CR 42 <https://cr.joyent.us/42>.
-    Deleting remote 'origin' branch:        # only if it is there
-        ...indented 'git push origin :$branch' output
-    Deleting branch 'grr/TOOLS-123':
-        ...indented 'git branch -d' output. Do we need 'git branch -D'?
-
-
-## scenario: prep for working on an issue, no changes yet to CR
-
-    [~/src/myproject (master)]$ grr TOOLS-123
-    Issue: TOOLS-123 add feature X
-    Creating branch for CR: grr/TOOLS-123
-    Not creating CR: no commits over master
-
-## scenario: creating a CR while on a manual feature branch
-
-    [~/src/myproject (TOOLS-123)]$ grr TOOLS-123
-    Issue: TOOLS-123 add feature X
-    Using current feature branch for CR: TOOLS-123
-    Creating CR:
-        ...indented grr/auto/$issue dance
-    CR: 42 <https://cr.joyent.us/42>
-    [~/src/myproject (TOOLS-123)]$
-
-
-## scenario: updates to a created CR
-
-You have a 'grr/TOOLS-123' branch (created as in the first scenario) and
-have created an initial CR 42. Now you have made another commit on your local
-feature branch and want to update the CR.
-
-    [~/src/myproject (grr/TOOLS-123)]$ git commit -am "another change"
-    [~/src/myproject (grr/TOOLS-123)]$ grr
-    Updating CR 42 <https://cr.joyent.us/42> with local commits.
-    Warning: You have uncommited changes. You can `grr --commit` or commit them.
-    Updating CR 42:
-        ...indented grr/auto/$issue log
-    CR 42 patch set 2 added: <https://cr.joyent.us/42/2>
-
-^^^ That will create a temporary branch in which to squash your commits and
-push *that* to Gerrit. Then it deletes that temp branch.
 
 
 ## scenario: `grr TOOLS-123` when not on that branch locally
