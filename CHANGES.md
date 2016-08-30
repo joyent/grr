@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.2.3 (not yet released)
+
+(nothing yet)
+
+
 ## 1.2.2
 
 - Fix `grr` in a branch with a stored JIRA issue. (This was broken in v1.1.0).
