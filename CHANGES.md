@@ -2,7 +2,7 @@
 
 ## 1.2.2 (not yet released)
 
-(nothing yet)
+- Fix `grr` in a branch with a stored JIRA issue. (This was broken in v1.1.0).
 
 
 ## 1.2.1
