@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.2.5 (not yet released)
+
+(nothing yet)
+
+
 ## 1.2.4
 
 - Correct `gerritUsername` in the fix in 1.2.3.
