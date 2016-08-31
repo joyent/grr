@@ -2,10 +2,12 @@
 
 ## 1.2.4 (not yet released)
 
-(nothing yet)
+- Correct `gerritUsername` in the fix in 1.2.3.
 
 
 ## 1.2.3
+
+**Bad release. Use 1.2.4.**
 
 - Need to use the gerritUsername (that was determined earlier) when doing "ssh
   cr.joyent.us".
