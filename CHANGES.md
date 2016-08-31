@@ -2,7 +2,8 @@
 
 ## 1.2.3 (not yet released)
 
-(nothing yet)
+- Need to use the gerritUsername (that was determined earlier) when doing "ssh
+  cr.joyent.us".
 
 
 ## 1.2.2
