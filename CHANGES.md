@@ -1,6 +1,6 @@
 # grr changelog
 
-## 1.2.3 (not yet released)
+## 1.2.3
 
 - Need to use the gerritUsername (that was determined earlier) when doing "ssh
   cr.joyent.us".
