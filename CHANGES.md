@@ -1,5 +1,10 @@
 # grr changelog
 
+## 1.2.4 (not yet released)
+
+(nothing yet)
+
+
 ## 1.2.3
 
 - Need to use the gerritUsername (that was determined earlier) when doing "ssh
