@@ -1,6 +1,6 @@
 # grr changelog
 
-## 1.3.0 (not yet released)
+## 1.3.0
 
 - `grr -p PARENTHETICAL` to add a parenthetical to the commit message. Usage:
 
