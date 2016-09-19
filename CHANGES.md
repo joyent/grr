@@ -1,9 +1,13 @@
 # grr changelog
 
-## 1.2.5 (not yet released)
+## 1.3.0 (not yet released)
 
-(nothing yet)
+- `grr -p PARENTHETICAL` to add a parenthetical to the commit message. Usage:
 
+        $ grr -p "fix make check" ISSUE
+        ...
+        $ git commit -am "..."
+        $ grr
 
 ## 1.2.4
 
