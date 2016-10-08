@@ -1,9 +1,10 @@
 # grr changelog
 
-## 1.3.1 (not yet released)
+## not yet released
 
-(nothing yet)
+## 1.3.1
 
+- Allow the origin git URL to not have trailing ".git".
 
 ## 1.3.0
 
