@@ -2,6 +2,10 @@
 
 ## not yet released
 
+## 1.3.2
+
+- Release 1.3.1 broke things. Fix that.
+
 ## 1.3.1
 
 - Allow the origin git URL to not have trailing ".git".
