@@ -2,6 +2,11 @@
 
 ## not yet released
 
+## 1.4.0
+
+- Change to using 'grr-$issue' instead of 'grr/$issue' for the created working
+  branch, because the '/' might cause issues with Joyent `TRY_BRANCH` builds.
+
 ## 1.3.2
 
 - Release 1.3.1 broke things. Fix that.
