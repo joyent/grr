@@ -2,6 +2,14 @@
 
 ## not yet released
 
+## 1.5.0
+
+- When pushing new commits the author of the latest commit will be used, rather
+  than necessarily you. That means you can make a slight tweak to someone
+  else's CR, commit your tweak with `git commit --author="The Other Guy
+  <guy@example.com>" ...` and then run `grr` without steal credit for all the
+  real work.
+
 ## 1.4.0
 
 - Change to using 'grr-$issue' instead of 'grr/$issue' for the created working
