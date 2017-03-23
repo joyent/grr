@@ -1,22 +1,9 @@
-# TODO higher prio
-
-Need to figure out these occassional ssh hangs and fix them. Possibly this'll
-require some involved unwinding/retrying/rollbacking code through out, but for
-starters let's see if there is a pattern via logging.
-
-- trace logging to file and less verbose output:
-    - lib/logging.js
-    - log trace level to a ring buffer, dump that to ~/.grr/logs/grr-$timestamp.log
-      on failure
-    - on failure, do the bunyan CLI thing to spit out notes for logging a bug
-      with details to attach the file.
-    * * *
-    - consider `log.console.{log,error}` and a stream that will emit those
-      to stdout/stderr while also to the log file
-    - `grr --last-log` to cat last log file
 
 # TODO
 
+- grr option to adopt an existing CR and patchset
+- grr's addition of "Reviewed by" comments to the tickets does so even if
+  the vote is *negative*. That's wrong.
 - grr support for *multiple* tickets
 - `grr --integrate,-I` that checks for approvals, does the integration,
   and then calls `grrDelete`.
