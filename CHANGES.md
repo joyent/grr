@@ -2,6 +2,10 @@
 
 ## not yet released
 
+## 1.5.2
+
+- Avoid adding a "Reviewed by: ..." to a CR for a *-1* review.
+
 ## 1.5.1
 
 - [pull #2] Get `grr` working with an older git (git 1.7 is Dave's case).
