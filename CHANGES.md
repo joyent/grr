@@ -2,6 +2,10 @@
 
 ## not yet released
 
+## 1.6.0
+
+- Update grr to use the new https://jira.joyent.us
+
 ## 1.5.2
 
 - Avoid adding a "Reviewed by: ..." to a CR for a *-1* review.
@@ -84,7 +88,7 @@
   cutting and pasting:
 
         grr TOOLS-1531
-        grr https://devhub.joyent.com/jira/browse/TOOLS-1531
+        grr https://jira.joyent.us/browse/TOOLS-1531
         grr 6
         grr https://github.com/joyent/sdc-triton/issues/6
         grr joyent/sdc-triton#6
