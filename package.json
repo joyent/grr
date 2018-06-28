@@ -8,6 +8,7 @@
     "assert-plus": "1.x",
     "bunyan": "1.x",
     "dashdash": "1.x",
+    "extsprintf": "^1.3.0",
     "forkexec": "1.x",
     "request": "2.74.x",
     "strsplit": "1.x",
