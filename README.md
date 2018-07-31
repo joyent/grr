@@ -31,6 +31,8 @@ Verify that it is installed and on your PATH:
     grr 1.2.0
     https://github.com/joyent/grr
 
+You'll need to setup your account in Joyent's Gerrit by following the steps
+at https://github.com/joyent/joyent-gerrit/blob/master/docs/user/README.md#new-user-instructions
 
 ## Development Hooks
 
