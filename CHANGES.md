@@ -2,6 +2,15 @@
 
 ## not yet released
 
+## 1.8.0
+
+- grr -r <cr|ia> support to vote on Code-Review or Integration-Approval
+  on projects
+
+## 1.7.0
+
+- grr -L support to list outstanding reviews for this project
+
 ## 1.6.0
 
 - Update grr to use the new https://jira.joyent.us
