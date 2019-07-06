@@ -4,7 +4,6 @@
 - grr's addition of "Reviewed by" comments to the tickets does so even if
   the vote is *negative*. That's wrong.
 - grr option to adopt an existing CR and patchset
-- grr support for *multiple* tickets
 - `grr --integrate,-I` that checks for approvals, does the integration,
   and then calls `grrDelete`.
 - change <parenthetical> to being an *option*, makes it clearer how to update
