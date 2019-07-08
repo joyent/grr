@@ -67,7 +67,7 @@ CR created: 275 <https://cr.joyent.us/275>
 ```
 
 It squashes all the commits (in a separate branch used only for this push)
-and pushed to gerrit. Now make more commits and `grr` again to update:
+and pushes to gerrit. Now make more commits and `grr` again to update:
 
 ```
 [trentm@danger0:~/tm/play (grr-TOOLS-1516)]
@@ -116,8 +116,31 @@ It cached the CR number from earlier, so does the right thing on push.
 If you look at <https://cr.joyent.us/275>, you'll notice that the commit
 message format is handled for you.
 
-When you are done, use `grr -D` to clean up (remove the branch) and it pops
-you back to `master`:
+If we now end up fixing another issue as part of this CR, we can add it to our
+commit message with `grr -a`:
+
+```
+[trentm@danger0:~/tm/play (grr-TOOLS-1516)]
+$ grr -a TOOLS-1517
+...
+```
+
+When you have the requisite +1's on gerrit, run `grr` one more time to update
+the commit message with the correct `Reviewed-by` and `Approved-by` lines:
+
+```
+[trentm@danger0:~/tm/play (grr-TOOLS-1516)]
+$ grr
+...
+```
+
+Be aware: if you try to update the commit message and rebase at the same time,
+gerrit gets confused, and drops all of the +1s from the CR.
+
+You can now *Submit* in gerrit to integrate.
+
+Finally, use `grr -D` to clean up (remove the branch), which pops you back to
+`master`:
 
 ```
 [trentm@danger0:~/tm/play (grr-TOOLS-1516)]

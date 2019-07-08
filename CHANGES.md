@@ -2,6 +2,10 @@
 
 ## not yet released
 
+## 1.7.0
+
+- multiple issue support (joyent/grr#13)
+
 ## 1.6.0
 
 - Update grr to use the new https://jira.joyent.us
