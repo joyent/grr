@@ -2,6 +2,10 @@
 
 ## not yet released
 
+## 1.7.0
+
+- [pull #11] Add `grr -L` to list open CRs for the current repository.
+
 ## 1.6.0
 
 - Update grr to use the new https://jira.joyent.us
