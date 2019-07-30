@@ -16,6 +16,14 @@
 - --commit
 - `grr -D` to check that all commits have been pushed to Gerrit, else require
   a -f
+- `extraIssues` improvement to not have to fetch issue info from JIRA/GH every
+  time. Currently the `extraIssues` issueTitle is being cached locally in
+  ".git/config", so the `grrUpdateOrCreate` pipeline doesn't always *need*
+  to go fetch issue data for them. Instead:
+    1. `stepParseExtraIssues` could be changed to just `ensureExtraIssueData`
+       (similar to `ensureIssueId` just above it for the main issue).
+    2. We would then need to ensure that `grr --update` would re-fetch issue
+       data for `extraIssues`.
 - support an option (in config and per branch) to push to a remote GH branch
   as well for every `grr`. Then have some of the GH branch utilities
   (nicer full diff, seeing individual commits as they were made, ability to
