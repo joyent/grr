@@ -2,6 +2,33 @@
 
 ## not yet released
 
+(nothing)
+
+## 1.8.0
+
+- [issue #12] Add support for multiple issues. (Work mostly by John Levon.)
+  This adds the concept of "extra issues" that your CR covers. You can
+  specify extra issues initially via:
+
+        grr <main-issue> <extra-issue-1> <extra-issue-2> ...
+        grr TRITON-123   TRITON-124 OS-456
+
+  or after you've started via:
+
+        grr -a TRITON-124,OS-456
+
+  You can remove extra issues from a CR via:
+
+        grr -r TRITON-124
+
+  Extra issues will be included in the commit message. E.g. for our
+  contrived example:
+
+        TRITON-123 VMAPI metrics test fails in nightly
+        TRITON-124 add node-triton support for bhyve
+        OS-456 constant dhcp NAKs
+        Reviewed-By: ...
+
 ## 1.7.0
 
 - [pull #11] Add `grr -L` to list open CRs for the current repository.

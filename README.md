@@ -7,6 +7,8 @@ Grr is opinionated. The expected workflow is this:
    (`grr-<issue>`) for work on this issue (if you are currently on "master"),
    or to use your current branch (if you are already on a non-"master" branch).
    Grr will fetch issue details and remember them (in local git config).
+   Optionally you can specify "extra issues" that your changes cover, via
+   `grr -a <extra-issue>`. Those issues will be included in the commit message.
 2. You make one or more commits, **`git commit -am ...`**, for your change.
 3. You call **`grr`** to create/update the CR. Grr will squash the commits (in a
    temporary `grr/auto/<issue>` branch), push the commit (with the appropriate
