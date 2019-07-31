@@ -2,7 +2,16 @@
 
 ## not yet released
 
-(nothing)
+## 1.9.0
+
+- [pull #12] Add support to allow users to grant cr/ia +1s on reviews
+  This allows users to pass '-R cr' or '-R ia' to grant CR or IA
+  approval on reviews. With '-d', we print the review
+  status of reviews matching the argument, show a diff, and prompt
+  the user to grant the approval.
+
+  With '-n', we do a dry-run of granting the approval. Without -d,
+  we list the current approval status of matching reviews.
 
 ## 1.8.0
 
