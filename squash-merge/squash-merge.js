@@ -32,6 +32,9 @@ var parseGitConfig = require('parse-git-config');
 var restifyClients = require('restify-clients');
 var VError = require('verror');
 
+// the [section] of the .gitconfig where we store properties.
+var CONFIG_SECTION = 'squashmerge';
+
 var log = bunyan.createLogger({
     name: 'squash-merge',
     serializers: bunyan.stdSerializers,
@@ -46,10 +49,6 @@ var gitClient = restifyClients.createJsonClient({
     log: log,
     url: 'https://api.github.com'
 });
-
-// XXX read from ~/.github-api-token instead
-gitClient.basicAuth('timfoster', 'sjgdhfjfgfjgdhsfsjhfgsjhgfjsgdhfjdghsf');
-
 
 // XXX timf: it feels wrong setting globals here and having our async.pipeline
 // set these values. There must be a better way.
@@ -68,25 +67,39 @@ var prNumber = 10;
 var ticketRE = new RegExp('^[A-Z]+-[0-9]+ ');
 
 /*
- * return a "gituser/gitrepo" string from the repository pointed to by
- * process.env.GITREPO value. Eventually this shuold fall back to using $PWD
+ * Rudimentary ~ directory expansion. This doesn't work for user-relative paths
+ * such as "~timf/foo"
+ */
+function expandTilde(path) {
+    if (path.indexOf('~/') === 0) {
+        if (process.env.HOME !== undefined) {
+            return path.replace('~/', process.env.HOME + '/');
+        }
+    }
+    // give up.
+    return path;
+}
+
+/*
+ * set gitRepo to a "gituser/gitrepo" string from the repository pointed to by
+ * process.env.GITREPO value. Eventually this should fall back to using $PWD
  */
 function determineGitRepo(cb) {
     assert.string(process.env.GITREPO, 'Missing $GITREPO in environment');
 
-    var cfgPath = process.env.GITREPO + '/.git/config';
+    var cfgPath = expandTilde(process.env.GITREPO + '/.git/config');
     fs.exists(cfgPath, function(exists) {
         if (!exists) {
             cb(format('%s does not exist, check $GITREPO', cfgPath));
         }
         var gitConfig = parseGitConfig.sync({'path': cfgPath});
         if (gitConfig['remote "origin"'] === undefined) {
-            cb('unable to determine git origin for ' + cfgPath);
+            cb(new VError('unable to determine git origin for ' + cfgPath));
         }
         var url = gitConfig['remote "origin"'].url;
         var gitUser = '';
         var gitRepoName = '';
-        log.warn(url);
+
         if (url.indexOf('http') !== 0 && url.indexOf('@') !== 0) {
             var repoPair = url.split(':')[1].split('/');
             gitUser = repoPair[0];
@@ -100,6 +113,51 @@ function determineGitRepo(cb) {
             gitRepoName= gitRepoName.substr(0, gitRepoName.length - 4);
         }
         gitRepo = format('%s/%s', gitUser, gitRepoName);
+        cb();
+    });
+}
+
+/*
+ * Get github credentials either from ~/.gitconfig e.g.
+ * [squashmerge]
+ *     github_user = timf
+ *     github_api_token_file = ~/.github_api_token_file
+ *
+ * Or via $GITHUB_USER and $GITHUB_API_TOKEN_FILE environment variables.
+ * With this information, initialize our restifyClient.
+ */
+function initializeGitClient(cb) {
+    // Get GitHub login credentials, and initialize our restifyClient
+    var gitUserConfig = parseGitConfig.sync(
+        {'path': expandTilde('~/.gitconfig')});
+    var gitHubLoginUser = process.env.GITHUB_USER;
+    if (gitHubLoginUser === undefined) {
+        if (gitUserConfig[CONFIG_SECTION] !== undefined) {
+            gitHubLoginUser = gitUserConfig[CONFIG_SECTION].github_user;
+        }
+        if (gitHubLoginUser === undefined) {
+            cb(new VError('unable to determine username from .git/config ' +
+                'or $GITHUB_USER'));
+            return;
+        }
+    }
+    var tokenFile = process.env.GITHUB_API_TOKEN_FILE;
+    if (process.env.GITHUB_API_TOKEN_FILE === undefined) {
+        if (gitUserConfig[CONFIG_SECTION] !== undefined) {
+            tokenFile = gitUserConfig[CONFIG_SECTION].github_api_token_file;
+        }
+    }
+    if (tokenFile === undefined) {
+        tokenFile = '~/.github-api-token';
+    }
+    tokenFile = expandTilde(tokenFile);
+    fs.readFile(tokenFile, 'utf8', function(err, data) {
+        if (err) {
+            cb(new VError('failed to read %s: %s', tokenFile, err));
+            return;
+        }
+        var gitHubAPIToken = data.trim();
+        gitClient.basicAuth(gitHubLoginUser, gitHubAPIToken);
         cb();
     });
 }
@@ -139,7 +197,7 @@ function gatherPullRequestCommits(cb) {
                 var lines = obj.commit.message.split('\n');
                 lines.forEach(function extractTickets(line) {
                     if (ticketRE.test(line)) {
-                        tickets[line.split(' ')[0]] = line;
+                        tickets[line.split(' ')[0]] = line.trim();
                     } else {
                         log.warn('no match for line ', line);
                     }
@@ -150,6 +208,11 @@ function gatherPullRequestCommits(cb) {
     );
 }
 
+// trawl through commits to gather reviewer info
+function gatherPullRequestReviewers(cb) {
+    ;
+}
+
 // get as much info about a reviewer user as we can, in order to fill out
 // "Reviewed by: [First] [Last] <email address>"
 // or fall back to:
@@ -157,11 +220,6 @@ function gatherPullRequestCommits(cb) {
 // or finally
 // "Reviewed by: [username]"
 function gatherReviewerNameInfo(cb) {
-    ;
-}
-
-// trawl through commits to gather reviewer info
-function gatherReviewerInfo(cb) {
     ;
 }
 
@@ -177,19 +235,24 @@ mod_vasync.pipeline({
         function getGitInfo(_, next) {
             determineGitRepo(next);
         },
+        function setupClient(_, next) {
+            initializeGitClient(next);
+        },
         function getPrProps(_, next) {
             gatherPullRequestProps(next);
         },
         function getPrCommits(_, next) {
             gatherPullRequestCommits(next);
+        },
+        function getReviewers(_, next) {
+            gatherPullRequestReviewers(next);
         }
     ]
 }, function (err, results) {
         if (err) {
-            log.error('error: %s', err.message);
+            assert.fail('error: %s', err.message);
         }
         log.info('submitter is ' + submitter);
         log.info('title is ' + title);
         log.info('tickets are ' + Object.keys(tickets).join(', '));
 });
-
