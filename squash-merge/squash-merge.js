@@ -256,6 +256,10 @@ function gatherPullRequestReviewers(cb) {
 function gatherUserNameInfo(cb, user, setName) {
     gitClient.get('/users/' + user,
         function getUser(err, req, res, userInfo) {
+            if (err !== null) {
+                cb(err);
+                return;
+            }
             var fullName = null;
             var email = '';
 
@@ -296,6 +300,24 @@ mod_vasync.pipeline({
         function getReviewers(_, next) {
             gatherPullRequestReviewers(next);
         },
+        // XXX timf: sigh, this is also not working, This time, we tried to have
+        // the previous pipeline step just populate reviewers with a set of names,
+        // intending to have this pipeline stage fill in the user details.
+        // This time we never seem to call next() at all :-/
+        // function getReviewerInfo(_, next) {
+        //     mod_vasync.forEachParallel({
+        //         'func': function gatherReviewerInfo(reviewer) {
+        //                 gatherUserNameInfo(_, reviewer, function setReviewer(name) {
+        //                     reviewers[reviewer] = name;
+        //             });
+        //         },
+        //         'inputs': Object.keys(reviewers)
+        //     }, function (err, results) {
+        //         console.log('error: %s', err.message);
+        //         console.log('results: %s', JSON.stringify(results));
+        //         next();
+        //     });
+        // },
         function getSubmitter(_, next, submitter) {
             if (submitter !== null) {
                 gatherUserNameInfo(next, submitter,
