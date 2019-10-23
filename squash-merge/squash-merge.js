@@ -27,7 +27,6 @@ var bunyan = require('bunyan');
 var format = require('util').format;
 var fs = require('fs');
 var mod_vasync = require('vasync');
-var mod_util = require('util');
 var parseGitConfig = require('parse-git-config');
 var restifyClients = require('restify-clients');
 var VError = require('verror');
@@ -50,15 +49,19 @@ var gitClient = restifyClients.createJsonClient({
     url: 'https://api.github.com'
 });
 
-// XXX timf: it feels wrong setting globals here and having our async.pipeline
+// XXX it feels wrong setting globals here and having our async.pipeline
 // set these values. There must be a better way.
 var submitter = null;
+var submitterName = null;
 var title = null;
 
 // We're using this object's keys to gather the set of tickets for this PR.
+// XXX perhaps this will eventually need to be of the form
+// { ticket1: ['synopsis', [message1, message2, ...]],
+// { ticket2: ['synopsis', [message1, message2, ...]] }
 var tickets = {};
+// longer form messages describing a commit
 var reviewers = {};
-var msgs = [];
 var gitRepo = null;
 // XXX timf hardcoding 10 for now
 var prNumber = 10;
@@ -82,7 +85,8 @@ function expandTilde(path) {
 
 /*
  * set gitRepo to a "gituser/gitrepo" string from the repository pointed to by
- * process.env.GITREPO value. Eventually this should fall back to using $PWD
+ * process.env.GITREPO value. Eventually this should fall back to looking for
+ * a git repository in $PWD as well, but we've not done that yet.
  */
 function determineGitRepo(cb) {
     assert.string(process.env.GITREPO, 'Missing $GITREPO in environment');
@@ -120,8 +124,8 @@ function determineGitRepo(cb) {
 /*
  * Get github credentials either from ~/.gitconfig e.g.
  * [squashmerge]
- *     github_user = timf
- *     github_api_token_file = ~/.github_api_token_file
+ *     githubUser = timfoster
+ *     githubApiTokenFile = ~/.github_api_token_file
  *
  * Or via $GITHUB_USER and $GITHUB_API_TOKEN_FILE environment variables.
  * With this information, initialize our restifyClient.
@@ -133,10 +137,10 @@ function initializeGitClient(cb) {
     var gitHubLoginUser = process.env.GITHUB_USER;
     if (gitHubLoginUser === undefined) {
         if (gitUserConfig[CONFIG_SECTION] !== undefined) {
-            gitHubLoginUser = gitUserConfig[CONFIG_SECTION].github_user;
+            gitHubLoginUser = gitUserConfig[CONFIG_SECTION].githubUser;
         }
         if (gitHubLoginUser === undefined) {
-            cb(new VError('unable to determine username from .git/config ' +
+            cb(new VError('unable to determine username from .gitconfig ' +
                 'or $GITHUB_USER'));
             return;
         }
@@ -144,7 +148,7 @@ function initializeGitClient(cb) {
     var tokenFile = process.env.GITHUB_API_TOKEN_FILE;
     if (process.env.GITHUB_API_TOKEN_FILE === undefined) {
         if (gitUserConfig[CONFIG_SECTION] !== undefined) {
-            tokenFile = gitUserConfig[CONFIG_SECTION].github_api_token_file;
+            tokenFile = gitUserConfig[CONFIG_SECTION].githubApiTokenFile;
         }
     }
     if (tokenFile === undefined) {
@@ -164,7 +168,7 @@ function initializeGitClient(cb) {
 
 // gets miscellaneous properties from this PR, so far, the submitter and
 // PR title. Hopefully the first commit also includes the primary ticket
-// for this PR, but let's not take any chances..
+// for this PR, but let's not take any chances in case it's only in the title.
 function gatherPullRequestProps(cb) {
     gitClient.get(format('/repos/%s/pulls/%s', gitRepo, prNumber),
         function getPr(err, req, res, pr) {
@@ -182,7 +186,6 @@ function gatherPullRequestProps(cb) {
     );
 }
 
-
 // Gathers commit messages from the commits pushed as part of this PR
 function gatherPullRequestCommits(cb) {
     gitClient.get(format('/repos/%s/pulls/%s/commits', gitRepo, prNumber),
@@ -192,13 +195,15 @@ function gatherPullRequestCommits(cb) {
                 return;
             }
             commits.forEach(function processCommit(obj, index) {
-                log.info(obj.author.login);
-                log.warn(obj.commit.message);
                 var lines = obj.commit.message.split('\n');
                 lines.forEach(function extractTickets(line) {
                     if (ticketRE.test(line)) {
+                        // record the jira ticket and full line
                         tickets[line.split(' ')[0]] = line.trim();
                     } else {
+                        // not gathering long-form commit data yet, but we'll
+                        // want to if commits start following long-form git
+                        // commit message format.
                         log.warn('no match for line ', line);
                     }
                 });
@@ -210,7 +215,34 @@ function gatherPullRequestCommits(cb) {
 
 // trawl through commits to gather reviewer info
 function gatherPullRequestReviewers(cb) {
-    ;
+    gitClient.get(format('/repos/%s/pulls/%s/reviews', gitRepo, prNumber),
+        function getReviews(err, req, res, reviews) {
+            if (err !== null) {
+                cb(err);
+                return;
+            }
+            reviews.forEach(function processReview(obj, index) {
+                if (obj.user.login !== submitter) {
+                    log.info('review username: ' + obj.user.login);
+                    gatherUserNameInfo(
+                        // invoke the cb() only when we've processed the
+                        // final reviewer. XXX this isn't right. We're not
+                        // always calling this on repeated runs of this program.
+                        // I still don't get async js :-(
+                        function cbOnLast(){
+                            console.log(index);
+                            if (index === reviews.length - 1) {
+                                cb();
+                            }
+                        },
+                        obj.user.login, function setName(name){
+                            reviewers[obj.user.login] = name;
+                        }
+                    );
+                }
+            });
+        }
+    );
 }
 
 // get as much info about a reviewer user as we can, in order to fill out
@@ -219,8 +251,25 @@ function gatherPullRequestReviewers(cb) {
 // "Reviewed by: [username] <email address>"
 // or finally
 // "Reviewed by: [username]"
-function gatherReviewerNameInfo(cb) {
-    ;
+// Takes a callback, a user to lookup, and a function setName(full_name) which
+// gets called with the result of the user lookup.
+function gatherUserNameInfo(cb, user, setName) {
+    gitClient.get('/users/' + user,
+        function getUser(err, req, res, userInfo) {
+            var fullName = null;
+            var email = '';
+
+            if (userInfo.name !== null) {
+                fullName = userInfo.name;
+            } else {
+                fullName = user;
+            }
+            if (userInfo.email !== null) {
+                email = ' <' + userInfo.email + '>';
+            }
+            setName(fullName + email);
+            cb();
+        });
 }
 
 // XXX we might want to pull ticket info directly from Jira, or use the
@@ -246,13 +295,26 @@ mod_vasync.pipeline({
         },
         function getReviewers(_, next) {
             gatherPullRequestReviewers(next);
+        },
+        function getSubmitter(_, next, submitter) {
+            if (submitter !== null) {
+                gatherUserNameInfo(next, submitter,
+                    function setSubmitter(name) {
+                        submitterName = name;
+                    });
+            } else {
+                next();
+            }
         }
     ]
 }, function (err, results) {
         if (err) {
             assert.fail('error: %s', err.message);
         }
-        log.info('submitter is ' + submitter);
+        log.info(format('submitter is %s (%s)', submitterName, submitter));
+        Object.keys(reviewers).forEach(function(reviewer, index) {
+            log.info('reviewer: ' + reviewers[reviewer]);
+        });
         log.info('title is ' + title);
         log.info('tickets are ' + Object.keys(tickets).join(', '));
 });
