@@ -24,6 +24,7 @@
 
 var assert = require('assert-plus');
 var bunyan = require('bunyan');
+var child_process = require('child_process');
 var format = require('util').format;
 var fs = require('fs');
 var mod_vasync = require('vasync');
@@ -54,6 +55,8 @@ var gitClient = restifyClients.createJsonClient({
 var submitter = null;
 var submitterName = null;
 var title = null;
+// the most recent commit for this PR, needed when doing the squash+merge call
+var lastCommit = null;
 
 // We're using this object's keys to gather the set of tickets for this PR.
 // XXX perhaps this will eventually need to be of the form
@@ -196,6 +199,7 @@ function gatherPullRequestCommits(cb) {
             }
             commits.forEach(function processCommit(obj, index) {
                 var lines = obj.commit.message.split('\n');
+                lastCommit = obj.sha;
                 lines.forEach(function extractTickets(line) {
                     if (ticketRE.test(line)) {
                         // record the jira ticket and full line
@@ -283,6 +287,25 @@ function gatherTicketInfo(cb) {
     ;
 }
 
+// actually perform the squash+merge
+function squashMerge(cb) {
+    // XXX intentionally forcing this to 404 for now
+    gitClient.put(format('/reposXXX/%s/pulls/%s/merge', gitRepo, prNumber),
+        {
+            'merge_method': 'squash',
+            'sha': lastCommit,
+            'commit_title': title,
+            'commit_message': 'XXX'
+        },
+        function putResp(err, req, res, obj) {
+            if (err !== null) {
+                cb(err);
+                return;
+            }
+            cb();
+        });
+}
+
 mod_vasync.pipeline({
     'funcs': [
         function getGitInfo(_, next) {
@@ -327,6 +350,28 @@ mod_vasync.pipeline({
             } else {
                 next();
             }
+        },
+        // before doing this, we'll want some sort of 'is this message ok?' loop
+        function fireUpEditor(_, next) {
+            var editor = process.env.EDITOR || 'vi';
+            // this will eventually be editing a proper tmpfile containing
+            // the commit message we've built up.
+            var child = child_process.spawnSync(editor, ['/tmp/commitmsg.txt'], {
+                stdio: 'inherit'
+            });
+
+            child.on('exit', function (e, code) {
+                log.info('editor exited ' + code);
+                if (code === null) {
+                    next();
+                } else {
+                    console.log('editor didn\'t exit 0!');
+                }
+            });
+        },
+        // yes it is ok, now squash and merge
+        function doMerge(_, next) {
+            squashMerge(next);
         }
     ]
 }, function (err, results) {
