@@ -71,7 +71,7 @@ var tickets = {};
 var reviewers = {};
 var gitRepo = null;
 // XXX timf hardcoding 10 for now
-var prNumber = 10;
+var prNumber = 40;
 
 // match JIRA-format ticket names, expected at the beginning of the line
 var TICKET_RE = new RegExp('^[A-Z]+-[0-9]+ ');
@@ -122,8 +122,8 @@ function determineGitRepo(args, cb) {
             gitRepoName = repoPair[1];
         } else {
             var urlElements = url.split('/');
-            gitUser = urlElements[urlElements - 2];
-            gitRepoName = urlElements[urlElements - 1];
+            gitUser = urlElements[urlElements.length - 2];
+            gitRepoName = urlElements[urlElements.length - 1];
         }
         if (gitRepoName.endsWith('.git')) {
             gitRepoName= gitRepoName.substr(0, gitRepoName.length - 4);
@@ -344,6 +344,7 @@ function editCommitMessage(args, cb) {
             cb(err);
             return;
         }
+        fs.writeSync(info.fd, args.title + '\n\n');
         fs.writeSync(info.fd, args.messages.join("\n"));
         fs.writeSync(info.fd, '\n');
         Object.keys(args.reviewerContacts).sort().forEach(function(reviewer, index) {
