@@ -136,8 +136,10 @@ function determineGitRepo(cb) {
  *     githubApiTokenFile = ~/.github_api_token_file
  *
  * Or via $GITHUB_USER and $GITHUB_API_TOKEN_FILE environment variables.
+ * If we can't find a token file, fall back to '~/.github-api-token'.
  * With this information, initialize our restifyClient. Invokes cb with an
- * error object if we weren't able to initialize the client for any reason.
+ * error object if we weren't able to initialize the client for any reason
+ * or were missing other credentials.
  *
  * @param {Function} cb - `function (err)`
  */
@@ -460,13 +462,15 @@ function readCommitMessage(args, cb) {
         var lines = fullMessage.split('\n');
         var title = lines[0];
         var msg_lines = [];
-        for (var i = 1; i < lines.length; i++) {
-            // skip the first blank line since that's the separator between
-            // the github title, and subsequent commit message body.
-            if (i === 1 && lines[i] === '') {
-                    continue;
+        if (lines.length > 1) {
+            for (var i = 1; i < lines.length; i++) {
+                // skip the first blank line since that's the separator between
+                // the github title, and subsequent commit message body.
+                if (i === 1 && lines[i] === '') {
+                        continue;
+                }
+                msg_lines.push(lines[i]);
             }
-            msg_lines.push(lines[i]);
         }
         cb (err, title, msg_lines.join('\n'));
     });
