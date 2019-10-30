@@ -13,9 +13,9 @@
  * and eventually fires the squash/merge PUT api with a commit message that
  * has "Reviewed by:" lines generated from the reviewers of the pull request.
  *
- * The expectation is that it'll write a commit message file to disk, fire up
- * $EDITOR, ask "is this commit message ok" (in a loop till you
- * say 'y') and then merge+squash the change
+ * It writes a commit message computed from the given pull request to a
+ * temporary file, fires up $EDITOR, asks "is this commit message ok"
+ * (in a loop till you say 'y') and then does merge+squash of the PR.
  *
  * In future we might also choose to cross-check that the supplied Github
  * ticket synopsis matches the actual Jira synopsis, modulo '(fix build)' etc.
@@ -31,10 +31,7 @@ var mod_vasync = require('vasync');
 var parseGitConfig = require('parse-git-config');
 var prompt = require('prompt');
 var restifyClients = require('restify-clients');
-// commented out while we test. To have the temp module auto-delete the
-// tempfile for us, uncomment this
-//var temp = require('temp').track();
-var temp = require('temp');
+var temp = require('temp').track();
 var VError = require('verror');
 
 // the [section] of the .gitconfig where we store properties.
@@ -44,6 +41,7 @@ var CONFIG_SECTION = 'squashmerge';
 // Fallback to this list instead. (XXX perhaps pull from a config file rather
 // than baking this into the code)
 var USER_EMAIL = {
+    'trentm': 'trentm@gmail.com'
 };
 
 var log = bunyan.createLogger({
@@ -61,25 +59,10 @@ var gitClient = restifyClients.createJsonClient({
     url: 'https://api.github.com'
 });
 
-// XXX it feels wrong setting globals here and having our async.pipeline
-// set these values. There must be a better way.
 var submitter = null;
-var submitterName = null;
-var title = null;
-// the most recent commit for this PR, needed when doing the squash+merge call
-var lastCommit = null;
-
-// We're using this object's keys to gather the set of tickets for this PR.
-// XXX perhaps this will eventually need to be of the form
-// { ticket1: ['synopsis', [message1, message2, ...]],
-// { ticket2: ['synopsis', [message1, message2, ...]] }
-var tickets = {};
-// longer form messages describing a commit
-var reviewers = {};
-var gitRepo = null;
 // XXX timf needs better CLI arguments
 log.info(process.argv)
-var prNumber = process.argv[2].trim();
+var prNumber = process.argv[2];
 
 assert.string(prNumber, 'prNumber');
 
@@ -105,10 +88,9 @@ function expandTilde(path) {
  * process.env.GITREPO value or process.env.PWD XXX add better feedback when
  * falling back to $PWD
  *
- * returns a callback(err, standard gitHub owner/repo string )
+ * @param {Function} cb - `function (err, standard gitHub "owner/repo" string)`
  */
-function determineGitRepo(args, cb) {
-    assert.object(args, 'arg');
+function determineGitRepo(cb) {
     assert.func(cb, 'cb');
 
     var repoPath = process.env.GITREPO;
@@ -143,8 +125,7 @@ function determineGitRepo(args, cb) {
         if (gitRepoName.endsWith('.git')) {
             gitRepoName= gitRepoName.substr(0, gitRepoName.length - 4);
         }
-        gitRepo = format('%s/%s', gitUser, gitRepoName);
-        cb(null, gitRepo);
+        cb(null, format('%s/%s', gitUser, gitRepoName));
     });
 }
 
@@ -155,9 +136,10 @@ function determineGitRepo(args, cb) {
  *     githubApiTokenFile = ~/.github_api_token_file
  *
  * Or via $GITHUB_USER and $GITHUB_API_TOKEN_FILE environment variables.
- * With this information, initialize our restifyClient.
+ * With this information, initialize our restifyClient. Invokes cb with an
+ * error object if we weren't able to initialize the client for any reason.
  *
- * invokes a callback(error) if any errors occur, callback() otherwise
+ * @param {Function} cb - `function (err)`
  */
 function initializeGitClient(cb) {
     assert.func(cb, 'cb');
@@ -193,21 +175,23 @@ function initializeGitClient(cb) {
         }
         var gitHubAPIToken = data.trim();
         gitClient.basicAuth(gitHubLoginUser, gitHubAPIToken);
-        cb();
+        cb(null);
     });
 }
 
-// gets miscellaneous properties from this PR, so far, the submitter and
-// PR title. Hopefully the first commit also includes the primary ticket
-// for this PR, but let's not take any chances in case it's only in the title.
-// requires args.gitRepo, a github standard user/repo pair.
-// returns a callback(error, submitter, title, {'ticket-id': 'ticket title', ...})
+/*
+ * Get miscellaneous properties from this PR.
+ *
+ * @param {String} args.gitRepo - The github "username/repo" string.
+ * @param {String} args.tickets - any existing ticket information we have.
+ * @param {Function} cb - `function (err, submitter, title, ticketInfo)`
+ */
 function gatherPullRequestProps(args, cb) {
     assert.object(args, 'args');
     assert.string(args.gitRepo, 'args.gitRepo');
     assert.func(cb, 'cb');
 
-    var pullUrl = format(format('/repos/%s/pulls/%s', gitRepo, prNumber));
+    var pullUrl = format(format('/repos/%s/pulls/%s', args.gitRepo, args.prNumber));
     log.info(pullUrl);
     gitClient.get(pullUrl,
         function getPr(err, req, res, pr) {
@@ -216,8 +200,8 @@ function gatherPullRequestProps(args, cb) {
                 cb(err);
                 return;
             }
-            submitter = pr.user.login;
-            title = pr.title;
+            var submitter = pr.user.login;
+            var title = pr.title.trim();
             if (TICKET_RE.test(title)) {
                 tickets[(title.split(' ')[0])] = pr.title;
             }
@@ -226,10 +210,17 @@ function gatherPullRequestProps(args, cb) {
     );
 }
 
-// Gathers commit messages from the commits pushed as part of this PR
-// requires args.gitRepo, a standard github user/repo pair
-//          args.tickets, any existing tickets we have
-// calls a callback(error, lastCommit, object with updated ticket info for this commit, messages)
+/*
+ * Gathers commit messages from the commits pushed as part of this PR,
+ * the SHA hash of the most recent commit in this PR (needed when merging the
+ * PR), an object containing data about the tickets included in this pull
+ * request, and an array of strings representing the commit messages for all
+ * commits in this PR.
+ *
+ * @param {String} args.gitRepo - The github "username/repo" string.
+ * @param {String} args.tickets - any existing ticket information we have.
+ * @param {Function} cb - `function (err, lastCommit, ticketInfo, messages)`
+ */
 function gatherPullRequestCommits(args, cb) {
     assert.object(args, 'args');
     assert.object(args.tickets, 'args.tickets');
@@ -244,6 +235,7 @@ function gatherPullRequestCommits(args, cb) {
             }
             var tickets = args.tickets;
             var messages = [];
+            var lastCommit;
             commits.forEach(function processCommit(obj, index) {
                 var lines = obj.commit.message.split('\n');
                 lastCommit = obj.sha;
@@ -261,9 +253,14 @@ function gatherPullRequestCommits(args, cb) {
     );
 }
 
-// trawl through commits to gather reviewer info
-// calls a callback(error, array of reviewers)
-function gatherPullRequestReviewers(args, cb) {
+/*
+ * Walk through the reviews in this PR to obtain an array of GitHub usernames
+ * that reviewed the PR.
+ *
+ * @param {String} args.gitRepo - The github "username/repo" string.
+ * @param {Function} cb - `function (err, reviewers)`
+ */
+function gatherReviewerUsernames(args, cb) {
     assert.object(args, 'args');
     assert.string(args.gitRepo, 'args.gitRepo');
     assert.func(cb, 'cb');
@@ -286,7 +283,18 @@ function gatherPullRequestReviewers(args, cb) {
     );
 }
 
-// calls a callback (err, reviewerContacts)
+/*
+ * Given a list of usernames, return an object mapping each reviewer username
+ * to a string in one of the formats:
+ *
+ * [First] [Last] <[email address]>
+ * [First] [Last]
+ * [username] <email address>
+ * [username]
+ *
+ * @param {String} args.reviewers - An array of reviewer username strings
+ * @param {Function} cb - `function (err, reviewerNames)`
+ */
 function gatherReviewerContacts(args, cb) {
     assert.object(args, 'args');
     assert.arrayOfString(args.reviewers, 'args.reviewers');
@@ -295,8 +303,6 @@ function gatherReviewerContacts(args, cb) {
     var reviewerContacts = {};
     mod_vasync.forEachParallel({
         inputs: args.reviewers,
-        // I commonly have a pattern in `vasync.forEach*`
-        // to use `nextFoo` as my callback name.
         func: function handleOneLogin(login, nextLogin) {
             emailContactFromUsername({user: login}, function (err, contact) {
                 if (err) {
@@ -312,12 +318,14 @@ function gatherReviewerContacts(args, cb) {
     });
 }
 
-// Get an email contact, e.g. "John Doe <john@example.com>", from
-// a GitHub username. Fall back to just the username, or the username
-// with no email address.
-//
-// @param {Object} args.user - The github username.
-// @param {Function} cb - `function (err, contact)`
+/*
+ * Get an email contact, e.g. "John Doe <john@example.com>", from
+ * a GitHub username. Fall back to just the username, or the username
+ * with no email address.
+ *
+ * @param {String} args.user - The github username.
+ * @param {Function} cb - `function (err, contact)`
+ */
 function emailContactFromUsername(args, cb) {
     assert.object(args, 'args');
     assert.string(args.user, 'args.user');
@@ -350,8 +358,17 @@ function gatherTicketInfo(cb) {
     ;
 }
 
-// Write a temporary file containing the commit title and commit message.
-// returns a callback(err, path to file);
+/*
+ * Create and write to a temporary file containing the commit title and
+ * commit message to be used when merging this pull request.
+ *
+ * @param {String} args.title - The title of this pull request
+ * @param {String} args.reviewerContacts - a map of reviewers to their
+ *                                         names/email addresses
+ * @param {Array} args.messages - A list of strings containing the commit
+ *                                messages for this review.
+ * @param {Function} cb - `function (err, commit message file path)`
+ */
 function writeCommitMessage(args, cb) {
     assert.object(args, 'args')
     assert.string(args.title, 'args.title');
@@ -364,9 +381,22 @@ function writeCommitMessage(args, cb) {
             cb(err);
             return;
         }
-        // currently enforcing a blank line between title and commit body
-        fs.writeSync(info.fd, args.title + '\n\n');
-        fs.writeSync(info.fd, args.messages.join("\n"));
+
+        // Often, PR titles are the same as the first commit message line in
+        // the PR. Try to catch these cases by only emitting the title text
+        // if it's different to the first commit message line.
+        if (args.messages.length > 0) {
+            if (args.title !== args.messages[0]) {
+               fs.writeSync(info.fd, args.title + '\n\n');
+               fs.writeSync(info.fd, args.messages.join('\n') + '\n');
+            } else {
+                fs.writeSync(info.fd, args.title + '\n\n');
+                fs.writeSync(info.fd, args.messages.slice(1).join('\n') + '\n');
+            }
+        } else {
+            // no messages, so just use the title. This should be impossible.
+            fs.writeSync(info.fd, args.title + '\n\n');
+        }
         Object.keys(args.reviewerContacts).sort().forEach(
             function(reviewer, index) {
                 fs.writeSync(info.fd, format(
@@ -382,7 +412,12 @@ function writeCommitMessage(args, cb) {
     });
 }
 
-// returns a callback(err, process exit code) XXX a bit useless right now
+/*
+ * Invoke $EDITOR or `vi` on the commit message synchronously.
+ *
+ * @param {String} args.commitMessagePath - The file path to edit
+ * @param {Function} cb - `function (err, exit status)`
+ */
 function editCommitMessage(arg, cb) {
     assert.object(arg, 'arg');
     assert.string(arg.commitMessagePath, 'arg.commitMessagePath');
@@ -395,8 +430,23 @@ function editCommitMessage(arg, cb) {
     cb(null, child.status);
 }
 
-// reads the commit message from args.commitMessagePath and
-// returns cb(err, commit title, commit body)
+/*
+ * Read the supplied commit message file and make it available as a string.
+ * We try to format the message in standard Git form:
+ * '''
+ * <first line of message>
+ *
+ * <subsequent lines of commit message>
+ * '''
+ *
+ * We invoke a callback to provide access to the first line of the commit
+ * message (usually the title of the PR) followed by the remaining lines.
+ * XXX timf: formatting isn't quite right here yet, needs more work.
+ *
+ * @param {String} args.commitMessagePath - The file path to read
+ * @param {Function} cb - `function (err, first line of message,
+ *                                   remainder of commit message)`
+ */
 function readCommitMessage(args, cb) {
     assert.object(args, 'args');
     assert.string(args.commitMessagePath, 'args.commitMessagePath');
@@ -413,8 +463,8 @@ function readCommitMessage(args, cb) {
         for (var i = 1; i < lines.length; i++) {
             // skip the first blank line since that's the separator between
             // the github title, and subsequent commit message body.
-            if (lines[i] === '' && i === 1) {
-                continue;
+            if (i === 1 && lines[i] === '') {
+                    continue;
             }
             msg_lines.push(lines[i]);
         }
@@ -422,8 +472,13 @@ function readCommitMessage(args, cb) {
     });
 }
 
-// emits the current commit message, args.commitMessage and asks the user
-// if it's acceptable. returns a callback(err, answer)
+/*
+ * Display a commit message to the user, and ask them if it's acceptable.
+ * Our callback provides access to the answer to the question.
+ *
+ * @param {String} args.commitMessagePath - The file path to edit
+ * @param {Function} cb - `function (err, user answer y/n)`
+ */
 function yesNoPrompt(args, cb) {
     assert.object(args, 'args');
     assert.string(args.commitMessage, 'args.commitMessage');
@@ -434,7 +489,7 @@ function yesNoPrompt(args, cb) {
     if (args.commitMessage) {
         console.log('\n' + args.commitMessage);
     }
-    var user_question = 'Is this commit message ok?';
+    var user_question = 'Is this commit message ok? (y/n, Ctrl-C to abort) ';
     var prompt_schema = {
         properties: {
             answer: {
@@ -461,8 +516,16 @@ function yesNoPrompt(args, cb) {
     });
 }
 
-// iterate on the commit message, and invoke a
-// callback(err, commit title, commit message)
+/*
+ * In a loop, invoke an editor on the given commit message file, read the file
+ * into a variable, and ask the user if it's acceptable. Stop as soon as they
+ * say 'y'.
+ * Calls a callback providing access to the PR title and commit message,
+ * see readCommitMessage(..)
+ *
+ * @param {String} args.commitMessagePath - The file path to edit
+ * @param {Function} cb - `function (err, PR title, commitMessage)`
+ */
 function decideCommitMessage(arg, cb) {
 
     arg['commitMessageAccepted'] = false;
@@ -531,10 +594,20 @@ function decideCommitMessage(arg, cb) {
             console.log('Finished loop ' + JSON.stringify(result));
             cb(null, arg.title, arg.commitMessage);
         });
-
 }
 
-// perform the squash+merge
+/*
+ * Invoke the GitHub merge API to merge a pull request using the 'squash'
+ * merge method.
+ *
+ * @param {String} args.lastCommit - The SHA of the last commit in this PR
+ * @param {String} args.title - The PR title
+ * @param {String} args.commitMessage - The formatted commit message for this PR
+ *                                      which does *not* include the title
+ * @param {String} args.prNumber - the number of the beast^Wcommit message
+ * @param {String} args.gitRepo - The GitHub "user/repo" string
+ * @param {Function} cb - `function (err, obj result from GitHub)`
+ */
 function squashMerge(args, cb) {
     assert.object(args, 'args');
     assert.string(args.title, 'args.title');
@@ -569,12 +642,13 @@ function squashMerge(args, cb) {
     );
 }
 
+// Our main pipeline.
 var context = {'prNumber': prNumber};
 mod_vasync.pipeline({
     arg: context,
     funcs: [
         function getGitInfo(arg, next) {
-            determineGitRepo(arg, function collectGitRepo(err, gitRepo) {
+            determineGitRepo(function collectGitRepo(err, gitRepo) {
                 if (err) {
                     next(err);
                     return;
@@ -606,14 +680,15 @@ mod_vasync.pipeline({
                         next(err);
                         return;
                     }
+                    log.info('tickets are ' + tickets);
                     arg.tickets = tickets;
                     arg.lastCommit = lastCommit;
                     arg.messages = msgs;
                     next();
             });
         },
-        function getReviewers(arg, next) {
-            gatherPullRequestReviewers(arg,
+        function getReviewerUsernames(arg, next) {
+            gatherReviewerUsernames(arg,
                 function collectPRReviewers(err, reviewers){
                     if (err) {
                         next(err);
