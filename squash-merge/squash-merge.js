@@ -29,6 +29,7 @@ var format = require('util').format;
 var fs = require('fs');
 var mod_vasync = require('vasync');
 var parseGitConfig = require('parse-git-config');
+var prompt = require('prompt');
 var restifyClients = require('restify-clients');
 // commented out while we test. To have the temp module auto-delete the
 // tempfile for us, uncomment this
@@ -38,6 +39,12 @@ var VError = require('verror');
 
 // the [section] of the .gitconfig where we store properties.
 var CONFIG_SECTION = 'squashmerge';
+
+// Some joyent users don't have email addresses in their github profiles.
+// Fallback to this list instead. (XXX perhaps pull from a config file rather
+// than baking this into the code)
+var USER_EMAIL = {
+};
 
 var log = bunyan.createLogger({
     name: 'squash-merge',
@@ -70,8 +77,11 @@ var tickets = {};
 // longer form messages describing a commit
 var reviewers = {};
 var gitRepo = null;
-// XXX timf hardcoding 10 for now
-var prNumber = 40;
+// XXX timf needs better CLI arguments
+log.info(process.argv)
+var prNumber = process.argv[2].trim();
+
+assert.string(prNumber, 'prNumber');
 
 // match JIRA-format ticket names, expected at the beginning of the line
 var TICKET_RE = new RegExp('^[A-Z]+-[0-9]+ ');
@@ -92,8 +102,8 @@ function expandTilde(path) {
 
 /*
  * Compute the "gituser/gitrepo" string from the repository pointed to by
- * process.env.GITREPO value. Eventually this should fall back to looking for
- * a git repository in $PWD as well, but we've not done that yet.
+ * process.env.GITREPO value or process.env.PWD XXX add better feedback when
+ * falling back to $PWD
  *
  * returns a callback(err, standard gitHub owner/repo string )
  */
@@ -101,12 +111,17 @@ function determineGitRepo(args, cb) {
     assert.object(args, 'arg');
     assert.func(cb, 'cb');
 
-    assert.string(process.env.GITREPO, 'Missing $GITREPO in environment');
+    var repoPath = process.env.GITREPO;
+    if (!repoPath) {
+        log.info('Falling back to $PWD instead of $GITREPO');
+        repoPath = process.env.PWD;
+    }
 
-    var cfgPath = expandTilde(process.env.GITREPO + '/.git/config');
+    var cfgPath = expandTilde(repoPath + '/.git/config');
     fs.exists(cfgPath, function(exists) {
         if (!exists) {
-            cb(format('%s does not exist, check $GITREPO', cfgPath));
+            cb(new VError(format('%s does not exist. ' +
+                '$GITREPO or $PWD should point to a git repository', cfgPath)));
         }
         var gitConfig = parseGitConfig.sync({'path': cfgPath});
         if (gitConfig['remote "origin"'] === undefined) {
@@ -192,7 +207,9 @@ function gatherPullRequestProps(args, cb) {
     assert.string(args.gitRepo, 'args.gitRepo');
     assert.func(cb, 'cb');
 
-    gitClient.get(format('/repos/%s/pulls/%s', gitRepo, prNumber),
+    var pullUrl = format(format('/repos/%s/pulls/%s', gitRepo, prNumber));
+    log.info(pullUrl);
+    gitClient.get(pullUrl,
         function getPr(err, req, res, pr) {
             var tickets = {};
             if (err !== null) {
@@ -316,6 +333,10 @@ function emailContactFromUsername(args, cb) {
             var contact = userInfo.name || user;
             if (userInfo.email) {
                 contact += ' <' + userInfo.email + '>';
+            } else {
+                if (USER_EMAIL[user]) {
+                    contact += ' <' + USER_EMAIL[user] + '>';
+                }
             }
 
             cb(null, contact);
@@ -329,10 +350,9 @@ function gatherTicketInfo(cb) {
     ;
 }
 
-// XXX For now, this is just writing a version of commit message to a
-// tempfile and returning the path we need to use mod_async.whilst,
-// and have it prompt to load vi on the result
-function editCommitMessage(args, cb) {
+// Write a temporary file containing the commit title and commit message.
+// returns a callback(err, path to file);
+function writeCommitMessage(args, cb) {
     assert.object(args, 'args')
     assert.string(args.title, 'args.title');
     assert.object(args.reviewerContacts, 'args.reviewerContacts');
@@ -344,13 +364,14 @@ function editCommitMessage(args, cb) {
             cb(err);
             return;
         }
+        // currently enforcing a blank line between title and commit body
         fs.writeSync(info.fd, args.title + '\n\n');
         fs.writeSync(info.fd, args.messages.join("\n"));
-        fs.writeSync(info.fd, '\n');
-        Object.keys(args.reviewerContacts).sort().forEach(function(reviewer, index) {
+        Object.keys(args.reviewerContacts).sort().forEach(
+            function(reviewer, index) {
                 fs.writeSync(info.fd, format(
                     'Reviewed by: %s\n', args.reviewerContacts[reviewer]));
-        });
+            });
         fs.close(info.fd, function(err) {
           if (err) {
               cb(err);
@@ -359,52 +380,196 @@ function editCommitMessage(args, cb) {
           cb(null, info.path);
         });
     });
+}
+
+// returns a callback(err, process exit code) XXX a bit useless right now
+function editCommitMessage(arg, cb) {
+    assert.object(arg, 'arg');
+    assert.string(arg.commitMessagePath, 'arg.commitMessagePath');
+    assert.func(cb, 'cb');
+    var editor = process.env.EDITOR || 'vi';
+    // modify the commit message
+    var child = child_process.spawnSync(editor, [arg.commitMessagePath], {
+        stdio: 'inherit'
+    });
+    cb(null, child.status);
+}
+
+// reads the commit message from args.commitMessagePath and
+// returns cb(err, commit title, commit body)
+function readCommitMessage(args, cb) {
+    assert.object(args, 'args');
+    assert.string(args.commitMessagePath, 'args.commitMessagePath');
+    assert.func(cb, 'cb');
+    fs.readFile(args.commitMessagePath, function(err, data) {
+        if (err) {
+            cb(err);
+            return;
+        }
+        var fullMessage = data.toString();
+        var lines = fullMessage.split('\n');
+        var title = lines[0];
+        var msg_lines = [];
+        for (var i = 1; i < lines.length; i++) {
+            // skip the first blank line since that's the separator between
+            // the github title, and subsequent commit message body.
+            if (lines[i] === '' && i === 1) {
+                continue;
+            }
+            msg_lines.push(lines[i]);
+        }
+        cb (err, title, msg_lines.join('\n'));
+    });
+}
+
+// emits the current commit message, args.commitMessage and asks the user
+// if it's acceptable. returns a callback(err, answer)
+function yesNoPrompt(args, cb) {
+    assert.object(args, 'args');
+    assert.string(args.commitMessage, 'args.commitMessage');
+    assert.func(cb, 'cb');
+
+    log.info('Here is the commit message:');
+    console.log(args.title);
+    if (args.commitMessage) {
+        console.log('\n' + args.commitMessage);
+    }
+    var user_question = 'Is this commit message ok?';
+    var prompt_schema = {
+        properties: {
+            answer: {
+                description: user_question,
+                pattern: /^[yn]$/,
+                message: 'y or n will do!',
+                required: true
+            }
+        }
+    };
+    prompt.colors = false;
+    prompt.message = '';
+    prompt.start();
+    prompt.get(
+        prompt_schema,
+        function user_input(prompt_err, result) {
+            if (prompt_err) {
+                cb(new VError(
+                    prompt_err,
+                    'problem trying to prompt user'));
+                return;
+            }
+            cb(null, result.answer);
+    });
+}
+
+// iterate on the commit message, and invoke a
+// callback(err, commit title, commit message)
+function decideCommitMessage(arg, cb) {
+
+    arg['commitMessageAccepted'] = false;
+    mod_vasync.whilst(
+        function guard() {
+            if (!context.commitMessageAccepted) {
+                log.debug('commit message has not yet been accepted');
+                return true;
+            }
+            log.debug('commit message has been accepted');
+            return false;
+        },
+        function loop(nextLoop) {
+            mod_vasync.pipeline({
+                arg: arg,
+                funcs: [
+                function modifyCommitMessage(arg, nextStage) {
+                    editCommitMessage(arg,
+                        function editedCommitMessage(err) {
+                            if (err) {
+                                nextStage(err);
+                                return;
+                            }
+                            log.info('commit message has been edited');
+                            nextStage();
+                        });
+                },
+                function getCommitMessage(arg, nextStage) {
+                    readCommitMessage(arg,
+                        function collectCommitMessage(err, title, msg) {
+                            if (err) {
+                                nextStage(err);
+                                return;
+                            }
+                            arg.title = title;
+                            arg.commitMessage = msg;
+                            nextStage();
+                        });
+                },
+                function getYesNo(arg, nextStage) {
+                    yesNoPrompt(arg,
+                        function collectAnswer(err, answer) {
+                            if (err) {
+                                nextStage(err);
+                                return;
+                            }
+                            if (answer === 'y') {
+                                arg.commitMessageAccepted = true;
+                            }
+                            nextStage();
+                        });
+                }
+            ]},
+            function pipelineResults(err, results) {
+                if (err) {
+                    assert.fail(format('error: %s', err.message));
+                }
+                log.info('Our pipeline results are ' + JSON.stringify(results));
+                nextLoop(null, context);
+            });
+        },
+        function (err, result) {
+            if (err) {
+                assert.fail(format('error in loop: %s', err.message));
+            }
+            console.log('Finished loop ' + JSON.stringify(result));
+            cb(null, arg.title, arg.commitMessage);
+        });
 
 }
-        // XXX just placeholder code for now
-        // // before doing this, we'll want some sort of 'is this message ok?' loop
-        // function fireUpEditor(arg, next) {
-        //     var editor = process.env.EDITOR || 'vi';
-        //     // this will eventually be editing a proper tmpfile containing
-        //     // the commit message we've built up.
-        //     var child = child_process.spawnSync(editor, ['/tmp/commitmsg.txt'], {
-        //         stdio: 'inherit'
-        //     });
 
-        //     child.on('exit', function (e, code) {
-        //         log.info('editor exited ' + code);
-        //         if (code === null) {
-        //             next();
-        //         } else {
-        //             console.log('editor didn\'t exit 0!');
-        //         }
-        //     });
-        // },
-        // // yes it is ok, now squash and merge
-        // function doMerge(arg, next) {
-        //     squashMerge(next);
-        // }
+// perform the squash+merge
+function squashMerge(args, cb) {
+    assert.object(args, 'args');
+    assert.string(args.title, 'args.title');
+    assert.string(args.lastCommit, 'args.lastCommit');
+    assert.string(args.commitMessage, 'args.commitMessage');
+    assert.string(args.gitRepo, 'args.gitRepo');
+    assert.string(args.prNumber, 'args.prNumber');
+    assert.func(cb, 'cb');
+    log.info({
+        'merge_method': 'squash',
+        'sha': args.lastCommit,
+        'commit_title': args.title,
+        'commit_message': args.commitMessage
+    });
 
-// actually perform the squash+merge
-function squashMerge(cb) {
-    // XXX intentionally forcing this to 404 for now
-    gitClient.put(format('/reposXXX/%s/pulls/%s/merge', gitRepo, prNumber),
+    gitClient.put(
+        format('/repos/%s/pulls/%s/merge', args.gitRepo, args.prNumber),
         {
             'merge_method': 'squash',
-            'sha': lastCommit,
-            'commit_title': title,
-            'commit_message': 'XXX'
+            'sha': args.lastCommit,
+            'commit_title': args.title,
+            'commit_message': args.commitMessage
         },
         function putResp(err, req, res, obj) {
             if (err) {
                 cb(err);
                 return;
             }
-            cb();
-        });
+            log.info(obj);
+            cb(null, obj);
+        }
+    );
 }
 
-var context = {'cat': 'meow'};
+var context = {'prNumber': prNumber};
 mod_vasync.pipeline({
     arg: context,
     funcs: [
@@ -480,21 +645,45 @@ mod_vasync.pipeline({
                     next();
                 });
         },
-        function produceCommitMessage(arg, next) {
-            editCommitMessage(arg, function collectCommitMessage(err, path) {
+        function getCommitMessage(arg, nextStage) {
+            writeCommitMessage(arg,
+                function collectCommitMessagePath(err, path) {
+                    if (err) {
+                        nextStage(err);
+                        return;
+                    }
+                    arg.commitMessagePath = path;
+                    log.info('commit message is at ' + path);
+                    nextStage();
+                });
+        },
+        function validateCommitMessage(arg, next) {
+            decideCommitMessage(arg,
+                function gatherCommitMessage(err, title, msg) {
+                    if (err) {
+                        next(err);
+                        return;
+                    }
+                    arg.title = title;
+                    arg.commitMessage = msg;
+                    next();
+                });
+        },
+        function squashAndMerge(arg, next) {
+            squashMerge(arg, function collectResult(err, result) {
                 if (err) {
                     next(err);
                     return;
                 }
-                arg.commitMessagePath = path;
-                log.info('commit message is at ' + path);
+                log.info('we did it');
+                log.info(result);
                 next();
             });
         }
     ]
 }, function (err, results) {
         if (err) {
-            assert.fail('error: %s', err.message);
+            assert.fail(format('error: %s', err.message));
         }
        log.info(JSON.stringify(results));
 });
