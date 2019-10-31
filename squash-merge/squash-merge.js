@@ -186,7 +186,7 @@ function initializeGitClient(cb) {
  *
  * @param {String} args.gitRepo - The github "username/repo" string.
  * @param {String} args.tickets - any existing ticket information we have.
- * @param {Function} cb - `function (err, submitter, title, ticketInfo)`
+ * @param {Function} cb - `function (err, submitter, title, ticketInfo, state)`
  */
 function gatherPullRequestProps(args, cb) {
     assert.object(args, 'args');
@@ -204,10 +204,11 @@ function gatherPullRequestProps(args, cb) {
             }
             var submitter = pr.user.login;
             var title = pr.title.trim();
+            var state = pr.state;
             if (TICKET_RE.test(title)) {
                 tickets[(title.split(' ')[0])] = pr.title;
             }
-            cb(null, submitter, title, tickets);
+            cb(null, submitter, title, tickets, state);
         }
     );
 }
@@ -295,17 +296,23 @@ function gatherReviewerUsernames(args, cb) {
  * [username]
  *
  * @param {String} args.reviewers - An array of reviewer username strings
+ * @param {String} args.submitter - The username of the submitter
  * @param {Function} cb - `function (err, reviewerNames)`
  */
 function gatherReviewerContacts(args, cb) {
     assert.object(args, 'args');
     assert.arrayOfString(args.reviewers, 'args.reviewers');
+    assert.string(args.submitter, 'args.submitter');
     assert.func(cb, 'cb');
 
     var reviewerContacts = {};
     mod_vasync.forEachParallel({
         inputs: args.reviewers,
         func: function handleOneLogin(login, nextLogin) {
+            if (login === args.submitter) {
+                nextLogin();
+                return;
+            }
             emailContactFromUsername({user: login}, function (err, contact) {
                 if (err) {
                     nextLogin(err);
@@ -553,7 +560,6 @@ function decideCommitMessage(arg, cb) {
                                 nextStage(err);
                                 return;
                             }
-                            log.info('commit message has been edited');
                             nextStage();
                         });
                 },
@@ -585,17 +591,19 @@ function decideCommitMessage(arg, cb) {
             ]},
             function pipelineResults(err, results) {
                 if (err) {
-                    assert.fail(format('error: %s', err.message));
+                    nextLoop(new VError(
+                        format('problem editing commit message: %s',
+                            err.message)), null);
+                    return;
                 }
-                log.info('Our pipeline results are ' + JSON.stringify(results));
                 nextLoop(null, context);
             });
         },
         function (err, result) {
             if (err) {
-                assert.fail(format('error in loop: %s', err.message));
+                cb(err);
+                return;
             }
-            console.log('Finished loop ' + JSON.stringify(result));
             cb(null, arg.title, arg.commitMessage);
         });
 }
@@ -666,9 +674,15 @@ mod_vasync.pipeline({
         },
         function getPrProps(arg, next) {
             gatherPullRequestProps(arg,
-                function collectProps(err, submitter, title, tickets) {
+                function collectProps(err, submitter, title, tickets, state) {
                     if (err) {
                         next(err);
+                        return;
+                    }
+                    if (state !== 'open') {
+                        next(new VError(
+                            format('Cannot merge a PR that is in state \'%s\'',
+                                state)));
                         return;
                     }
                     arg.submitter = submitter;
@@ -684,7 +698,7 @@ mod_vasync.pipeline({
                         next(err);
                         return;
                     }
-                    log.info('tickets are ' + tickets);
+                    log.info('tickets are ' + JSON.stringify(tickets));
                     arg.tickets = tickets;
                     arg.lastCommit = lastCommit;
                     arg.messages = msgs;
@@ -754,15 +768,22 @@ mod_vasync.pipeline({
                     next(err);
                     return;
                 }
-                log.info('we did it');
-                log.info(result);
-                next();
+                if (result.merged) {
+                    log.info(result.message);
+                    next();
+                    return;
+                } else {
+                    next(
+                        new VError(
+                            format('this pr was not merged: %s', result.message)
+                        ));
+                }
             });
         }
     ]
 }, function (err, results) {
         if (err) {
-            assert.fail(format('error: %s', err.message));
+            console.log(format('Error: %s', err.message));
         }
        log.info(JSON.stringify(results));
 });
