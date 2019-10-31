@@ -261,11 +261,13 @@ function gatherPullRequestCommits(args, cb) {
  * that reviewed the PR.
  *
  * @param {String} args.gitRepo - The github "username/repo" string.
+ * @param {String} args.submitter - The username of the submitter
  * @param {Function} cb - `function (err, reviewers)`
  */
 function gatherReviewerUsernames(args, cb) {
     assert.object(args, 'args');
     assert.string(args.gitRepo, 'args.gitRepo');
+    assert.string(args.submitter, 'args.submitter');
     assert.func(cb, 'cb');
 
     gitClient.get(format('/repos/%s/pulls/%s/reviews', args.gitRepo, prNumber),
@@ -287,7 +289,47 @@ function gatherReviewerUsernames(args, cb) {
 }
 
 /*
- * Given a list of usernames, return an object mapping each reviewer username
+ * Walk through the issue events stream for this PR, looking for label changes
+ * that modify the 'integration-approval' label, recording the last username
+ * that added the label. This is not required by all repositories.
+ *
+ * @param {String} args.gitrepo - The github "username/repo" string.
+ * @param {Function} cb - `function (err, approvers)`
+ */
+function gatherApproverUsername(args, cb) {
+    assert.object(args, 'args');
+    assert.string(args.gitRepo, 'args.gitRepo');
+    assert.func(cb, 'cb');
+
+    gitClient.get(format('/repos/%s/issues/%s/events', args.gitRepo, prNumber),
+        function getEvents(err, req, res, events) {
+            if (err !== null) {
+                cb(err);
+                return;
+            }
+            // Given the way the GitHub events API works, there should only ever
+            // be a single user associated with a label. Here, if userA
+            // grants approval and userB revokes it, we record no approver.
+            var approver = null;
+            events.forEach(function processEvent(obj, index) {
+                if (obj.actor.login === submitter) {
+                    return;
+                }
+                if (obj.event === 'labeled' &&
+                        obj.label.name === 'integration-approval') {
+                    approver = obj.actor.login;
+                } else if (obj.event === 'unlabeled' &&
+                        obj.label.name === 'integration-approval') {
+                    approver = null;
+                }
+            });
+            cb(null, approver);
+        }
+    );
+}
+
+/*
+ * Given a list of usernames, return an object mapping each username
  * to a string in one of the formats:
  *
  * [First] [Last] <[email address]>
@@ -295,35 +337,32 @@ function gatherReviewerUsernames(args, cb) {
  * [username] <email address>
  * [username]
  *
- * @param {String} args.reviewers - An array of reviewer username strings
- * @param {String} args.submitter - The username of the submitter
+ * We enforce a restriction that the user cannot be the same as the PR
+ * submitter.
+ *
+ * @param {String} users - An array of reviewer username strings
  * @param {Function} cb - `function (err, reviewerNames)`
  */
-function gatherReviewerContacts(args, cb) {
+function gatherUserContacts(args, users, cb) {
     assert.object(args, 'args');
-    assert.arrayOfString(args.reviewers, 'args.reviewers');
-    assert.string(args.submitter, 'args.submitter');
+    assert.arrayOfString(users, 'users');
     assert.func(cb, 'cb');
 
-    var reviewerContacts = {};
+    var userContacts = {};
     mod_vasync.forEachParallel({
-        inputs: args.reviewers,
+        inputs: users,
         func: function handleOneLogin(login, nextLogin) {
-            if (login === args.submitter) {
-                nextLogin();
-                return;
-            }
             emailContactFromUsername({user: login}, function (err, contact) {
                 if (err) {
                     nextLogin(err);
                 } else {
-                    reviewerContacts[login] = contact;
+                    userContacts[login] = contact;
                     nextLogin();
                 }
             });
         }
     }, function doneAllLogins(err) {
-        cb(err, reviewerContacts);
+        cb(err, userContacts);
     });
 }
 
@@ -379,9 +418,10 @@ function gatherTicketInfo(cb) {
  * @param {Function} cb - `function (err, commit message file path)`
  */
 function writeCommitMessage(args, cb) {
-    assert.object(args, 'args')
+    assert.object(args, 'args');
     assert.string(args.title, 'args.title');
     assert.object(args.reviewerContacts, 'args.reviewerContacts');
+    assert.optionalString(args.approverContact, args.approverContact);
     assert.arrayOfString(args.messages, 'args.messages');
     assert.func(cb, 'cb');
 
@@ -411,6 +451,10 @@ function writeCommitMessage(args, cb) {
                 fs.writeSync(info.fd, format(
                     'Reviewed by: %s\n', args.reviewerContacts[reviewer]));
             });
+        if (args.approverContact) {
+            fs.writeSync(info.fd, format(
+                    'Approved by: %s\n', args.approverContact));
+        }
         fs.close(info.fd, function(err) {
           if (err) {
               cb(err);
@@ -717,13 +761,46 @@ mod_vasync.pipeline({
                 });
         },
         function getReviewerContacts(arg, next) {
-            gatherReviewerContacts(arg,
+            gatherUserContacts(arg, arg.reviewers,
                 function collectReviewerContacts(err, reviewerContacts) {
                     if (err) {
                         next(err);
                         return;
                     }
                     arg.reviewerContacts = reviewerContacts;
+                    next();
+                });
+        },
+        function getApproverUsernames(arg, next) {
+            arg.approver = null;
+            gatherApproverUsername(arg,
+                function collectPRApprovers(err, approver) {
+                    if (err) {
+                        next(err);
+                        return;
+                    }
+                    arg.approver = approver;
+                    next();
+                });
+        },
+        function getApproverContacts(arg, next) {
+            arg.approverContact = null;
+            if (arg.approver === null) {
+                next();
+                return;
+            }
+            // gatherUserContacts expects and returns an array, but we only
+            // ever have a single approver, so deal with that.
+            gatherUserContacts(arg, [arg.approver],
+                function collectApproverContacts(err, approverContacts) {
+                    if (err) {
+                        next(err);
+                        return;
+                    }
+                    if (approverContacts) {
+                        arg.approverContact = approverContacts[
+                            Object.keys(approverContacts)[0]];
+                    }
                     next();
                 });
         },
